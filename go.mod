@@ -1,4 +1,4 @@
-module github.com/yourusername/bear-cli
+module github.com/yourusername/things3-cli
 
 go 1.24.0
 

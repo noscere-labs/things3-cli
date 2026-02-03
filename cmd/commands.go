@@ -2,929 +2,385 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/yourusername/bear-cli/pkg/bear"
-	"github.com/yourusername/bear-cli/pkg/formatter"
-	"github.com/yourusername/bear-cli/pkg/tts"
-	"github.com/yourusername/bear-cli/pkg/util"
+	"github.com/yourusername/things3-cli/pkg/formatter"
+	"github.com/yourusername/things3-cli/pkg/things"
+	"github.com/yourusername/things3-cli/pkg/util"
 )
 
-// createCmd creates a new note in Bear
-var createCmd = &cobra.Command{
-	Use:   "create",
-	Short: "Create a new note in Bear",
-	Long: `Create a new note with optional title, content, tags, and file attachments.
+func addStringParam(cmd *cobra.Command, params map[string]string, flagName, paramName string) {
+	if cmd.Flags().Changed(flagName) {
+		value, _ := cmd.Flags().GetString(flagName)
+		params[paramName] = value
+	}
+}
+
+func addBoolParam(cmd *cobra.Command, params map[string]string, flagName, paramName string) {
+	if cmd.Flags().Changed(flagName) {
+		value, _ := cmd.Flags().GetBool(flagName)
+		if value {
+			params[paramName] = "true"
+		} else {
+			params[paramName] = "false"
+		}
+	}
+}
+
+func addStringArrayParam(cmd *cobra.Command, params map[string]string, flagName, paramName string) {
+	if cmd.Flags().Changed(flagName) {
+		values, _ := cmd.Flags().GetStringArray(flagName)
+		if len(values) == 0 {
+			params[paramName] = ""
+			return
+		}
+		params[paramName] = strings.Join(values, "\n")
+	}
+}
+
+func runAction(action string, params map[string]string, opts things.ExecuteOptions) error {
+	client, err := things.NewClient()
+	if err != nil {
+		formatter.PrintError("Failed to initialize Things client", "CLIENT_ERROR", err.Error())
+		return nil
+	}
+
+	callback, err := client.Execute(action, params, opts)
+	if err != nil {
+		if cbErr, ok := err.(*things.CallbackError); ok {
+			code := cbErr.Code
+			if code == "" {
+				code = "THINGS_ERROR"
+			}
+			formatter.PrintError(cbErr.Message, code, "")
+			return nil
+		}
+		formatter.PrintError(fmt.Sprintf("Failed to execute Things action: %v", err), "THINGS_ERROR", err.Error())
+		return nil
+	}
+
+	result := things.NormalizeResponse(action, callback)
+	formatter.PrintSuccess(result)
+	return nil
+}
+
+// addCmd creates a new to-do in Things
+var addCmd = &cobra.Command{
+	Use:   "add",
+	Short: "Add a new to-do in Things",
+	Long: `Add a new to-do with title, notes, tags, and scheduling options.
 
 Examples:
-  bear create --title "Meeting Notes" --content "Discussed Q1 roadmap" --tags "work,important"
-  bear create --title "Project Plan" --file ~/Documents/plan.pdf --tags "projects"
-  bear create --content "Quick note" --pin`,
+  things add --title "Buy milk" --when today --tags "errands"
+  things add --titles "Buy milk" --titles "Send invoices" --when anytime
+  things add --title "Review PR" --checklist-items "Read diff" --checklist-items "Run tests"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
-		title, _ := cmd.Flags().GetString("title")
-		content, _ := cmd.Flags().GetString("content")
-		tagsStr, _ := cmd.Flags().GetString("tags")
-		filePath, _ := cmd.Flags().GetString("file")
-		pin, _ := cmd.Flags().GetBool("pin")
-		timestamp, _ := cmd.Flags().GetBool("timestamp")
+		params := make(map[string]string)
 
-		// Validate input
-		if title == "" && content == "" && filePath == "" {
-			formatter.PrintError(
-				"At least one of title, content, or file must be provided",
-				"INVALID_ARGUMENTS",
-				"",
-			)
-			return nil
+		if cmd.Flags().Changed("titles") {
+			addStringArrayParam(cmd, params, "titles", "titles")
+		} else {
+			addStringParam(cmd, params, "title", "title")
 		}
 
-		// Parse tags from comma-separated string
-		tags := util.ParseTags(tagsStr)
+		addStringParam(cmd, params, "notes", "notes")
+		addStringParam(cmd, params, "when", "when")
+		addStringParam(cmd, params, "deadline", "deadline")
+		addStringParam(cmd, params, "tags", "tags")
+		addStringParam(cmd, params, "list", "list")
+		addStringParam(cmd, params, "list-id", "list-id")
+		addStringParam(cmd, params, "heading", "heading")
+		addStringParam(cmd, params, "heading-id", "heading-id")
+		addStringParam(cmd, params, "use-clipboard", "use-clipboard")
+		addStringParam(cmd, params, "creation-date", "creation-date")
+		addStringParam(cmd, params, "completion-date", "completion-date")
+		addStringArrayParam(cmd, params, "checklist-items", "checklist-items")
+		addBoolParam(cmd, params, "completed", "completed")
+		addBoolParam(cmd, params, "canceled", "canceled")
+		addBoolParam(cmd, params, "show-quick-entry", "show-quick-entry")
+		addBoolParam(cmd, params, "reveal", "reveal")
 
-		// Create Bear client
-		client, err := bear.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"Failed to initialize Bear client",
-				"CLIENT_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Create the note
-		note, err := client.CreateNote(bear.CreateNoteOptions{
-			Title:     title,
-			Content:   content,
-			Tags:      tags,
-			FilePath:  filePath,
-			Pin:       pin,
-			Timestamp: timestamp,
-		})
-
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to create note: %v", err),
-				"BEAR_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Format and print success response
-		formatter.PrintSuccess(note)
-		return nil
+		return runAction("add", params, things.ExecuteOptions{})
 	},
 }
 
-// readCmd reads an existing note from Bear
-var readCmd = &cobra.Command{
-	Use:   "read",
-	Short: "Read a note from Bear",
-	Long: `Read and display a note by ID or title.
+// addProjectCmd creates a new project in Things
+var addProjectCmd = &cobra.Command{
+	Use:   "add-project",
+	Short: "Add a new project in Things",
+	Long: `Add a new project with notes, tags, and optional area placement.
 
 Examples:
-  bear read --id "7E4B681B-..."
-  bear read --title "Meeting Notes"
-  bear read --title "Meeting Notes" --header "Action Items"`,
+  things add-project --title "Launch" --when someday
+  things add-project --title "Website" --area "Work" --to-dos "Design" --to-dos "Build"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
-		id, _ := cmd.Flags().GetString("id")
-		title, _ := cmd.Flags().GetString("title")
-		header, _ := cmd.Flags().GetString("header")
-		excludeTrashed, _ := cmd.Flags().GetBool("exclude-trashed")
+		params := make(map[string]string)
 
-		// Validate that ID or Title is provided
-		if id == "" && title == "" {
-			formatter.PrintError(
-				"Must provide either --id or --title",
-				"INVALID_ARGUMENTS",
-				"",
-			)
-			return nil
-		}
+		addStringParam(cmd, params, "title", "title")
+		addStringParam(cmd, params, "notes", "notes")
+		addStringParam(cmd, params, "when", "when")
+		addStringParam(cmd, params, "deadline", "deadline")
+		addStringParam(cmd, params, "tags", "tags")
+		addStringParam(cmd, params, "area", "area")
+		addStringParam(cmd, params, "area-id", "area-id")
+		addStringArrayParam(cmd, params, "to-dos", "to-dos")
+		addStringParam(cmd, params, "creation-date", "creation-date")
+		addStringParam(cmd, params, "completion-date", "completion-date")
+		addBoolParam(cmd, params, "completed", "completed")
+		addBoolParam(cmd, params, "canceled", "canceled")
+		addBoolParam(cmd, params, "reveal", "reveal")
 
-		// Create Bear client
-		client, err := bear.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"Failed to initialize Bear client",
-				"CLIENT_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Read the note
-		note, err := client.ReadNote(bear.ReadNoteOptions{
-			ID:             id,
-			Title:          title,
-			Header:         header,
-			ExcludeTrashed: excludeTrashed,
-		})
-
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to read note: %v", err),
-				"BEAR_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Format and print success response
-		formatter.PrintSuccess(note)
-		return nil
+		return runAction("add-project", params, things.ExecuteOptions{})
 	},
 }
 
-// updateCmd modifies an existing note
+// updateCmd modifies an existing to-do in Things
 var updateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Update an existing note in Bear",
-	Long: `Modify a note by appending, prepending, or replacing content.
-
-Modes:
-  append      - Add content to the end (default)
-  prepend     - Add content to the beginning
-  replace     - Replace content but keep title
-  replace_all - Replace entire note including title
+	Short: "Update an existing to-do in Things",
+	Long: `Update a to-do by ID. Requires an auth token.
 
 Examples:
-  bear update --id "7E4B681B-..." --content "New item" --mode append
-  bear update --id "7E4B681B-..." --content "Replaced content" --mode replace_all
-  bear update --id "7E4B681B-..." --file document.pdf --mode append`,
+  things update --id "THINGS-ID" --title "Updated title"
+  things update --id "THINGS-ID" --prepend-notes "Urgent" --reveal`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
 		id, _ := cmd.Flags().GetString("id")
-		content, _ := cmd.Flags().GetString("content")
+		if id == "" {
+			formatter.PrintError("To-do ID (--id) is required", "INVALID_ARGUMENTS", "")
+			return nil
+		}
+
+		params := map[string]string{"id": id}
+		addStringParam(cmd, params, "title", "title")
+		addStringParam(cmd, params, "notes", "notes")
+		addStringParam(cmd, params, "prepend-notes", "prepend-notes")
+		addStringParam(cmd, params, "append-notes", "append-notes")
+		addStringParam(cmd, params, "when", "when")
+		addStringParam(cmd, params, "deadline", "deadline")
+		addStringParam(cmd, params, "tags", "tags")
+		addStringParam(cmd, params, "add-tags", "add-tags")
+		addStringArrayParam(cmd, params, "checklist-items", "checklist-items")
+		addStringArrayParam(cmd, params, "prepend-checklist-items", "prepend-checklist-items")
+		addStringArrayParam(cmd, params, "append-checklist-items", "append-checklist-items")
+		addStringParam(cmd, params, "list", "list")
+		addStringParam(cmd, params, "list-id", "list-id")
+		addStringParam(cmd, params, "heading", "heading")
+		addStringParam(cmd, params, "heading-id", "heading-id")
+		addStringParam(cmd, params, "creation-date", "creation-date")
+		addStringParam(cmd, params, "completion-date", "completion-date")
+		addStringParam(cmd, params, "use-clipboard", "use-clipboard")
+		addBoolParam(cmd, params, "completed", "completed")
+		addBoolParam(cmd, params, "canceled", "canceled")
+		addBoolParam(cmd, params, "reveal", "reveal")
+		addBoolParam(cmd, params, "duplicate", "duplicate")
+		addStringParam(cmd, params, "auth-token", "auth-token")
+
+		return runAction("update", params, things.ExecuteOptions{RequiresAuth: true, UseAuthIfAvailable: true})
+	},
+}
+
+// updateProjectCmd modifies an existing project in Things
+var updateProjectCmd = &cobra.Command{
+	Use:   "update-project",
+	Short: "Update an existing project in Things",
+	Long: `Update a project by ID. Requires an auth token.
+
+Examples:
+  things update-project --id "THINGS-ID" --title "Updated project" --reveal`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		id, _ := cmd.Flags().GetString("id")
+		if id == "" {
+			formatter.PrintError("Project ID (--id) is required", "INVALID_ARGUMENTS", "")
+			return nil
+		}
+
+		params := map[string]string{"id": id}
+		addStringParam(cmd, params, "title", "title")
+		addStringParam(cmd, params, "notes", "notes")
+		addStringParam(cmd, params, "prepend-notes", "prepend-notes")
+		addStringParam(cmd, params, "append-notes", "append-notes")
+		addStringParam(cmd, params, "when", "when")
+		addStringParam(cmd, params, "deadline", "deadline")
+		addStringParam(cmd, params, "tags", "tags")
+		addStringParam(cmd, params, "add-tags", "add-tags")
+		addStringParam(cmd, params, "area", "area")
+		addStringParam(cmd, params, "area-id", "area-id")
+		addStringParam(cmd, params, "creation-date", "creation-date")
+		addStringParam(cmd, params, "completion-date", "completion-date")
+		addBoolParam(cmd, params, "completed", "completed")
+		addBoolParam(cmd, params, "canceled", "canceled")
+		addBoolParam(cmd, params, "reveal", "reveal")
+		addBoolParam(cmd, params, "duplicate", "duplicate")
+		addStringParam(cmd, params, "auth-token", "auth-token")
+
+		return runAction("update-project", params, things.ExecuteOptions{RequiresAuth: true, UseAuthIfAvailable: true})
+	},
+}
+
+// showCmd shows a list or item in Things
+var showCmd = &cobra.Command{
+	Use:   "show",
+	Short: "Show a list or item in Things",
+	Long: `Show a list (by query) or a specific item by ID.
+
+Examples:
+  things show --query Today
+  things show --id "THINGS-ID"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		params := make(map[string]string)
+		addStringParam(cmd, params, "id", "id")
+		addStringParam(cmd, params, "query", "query")
+
+		if len(params) == 0 {
+			formatter.PrintError("Provide --id or --query", "INVALID_ARGUMENTS", "")
+			return nil
+		}
+
+		return runAction("show", params, things.ExecuteOptions{})
+	},
+}
+
+// searchCmd searches Things
+var searchCmd = &cobra.Command{
+	Use:   "search",
+	Short: "Search in Things",
+	Long: `Search Things using a query string.
+
+Example:
+  things search --query "project"`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		params := make(map[string]string)
+		addStringParam(cmd, params, "query", "query")
+		if len(params) == 0 {
+			formatter.PrintError("Provide --query", "INVALID_ARGUMENTS", "")
+			return nil
+		}
+
+		return runAction("search", params, things.ExecuteOptions{})
+	},
+}
+
+// jsonCmd sends JSON payloads to Things
+var jsonCmd = &cobra.Command{
+	Use:   "json",
+	Short: "Send a JSON payload to Things",
+	Long: `Send JSON data to Things for batch creation or updates.
+
+Examples:
+  things json --file payload.json
+  things json --data '{"items":[]}'`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		data, _ := cmd.Flags().GetString("data")
 		filePath, _ := cmd.Flags().GetString("file")
-		mode, _ := cmd.Flags().GetString("mode")
-		header, _ := cmd.Flags().GetString("header")
-		tagsStr, _ := cmd.Flags().GetString("tags")
-		newLine, _ := cmd.Flags().GetBool("new-line")
-		timestamp, _ := cmd.Flags().GetBool("timestamp")
 
-		// Validate that ID is provided
-		if id == "" {
-			formatter.PrintError(
-				"Note ID (--id) is required",
-				"INVALID_ARGUMENTS",
-				"",
-			)
-			return nil
-		}
-
-		// Validate that content or file is provided
-		if content == "" && filePath == "" {
-			formatter.PrintError(
-				"Must provide either --content or --file",
-				"INVALID_ARGUMENTS",
-				"",
-			)
-			return nil
-		}
-
-		// Parse tags from comma-separated string
-		tags := util.ParseTags(tagsStr)
-
-		// Create Bear client
-		client, err := bear.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"Failed to initialize Bear client",
-				"CLIENT_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Update the note
-		note, err := client.UpdateNote(bear.UpdateNoteOptions{
-			ID:        id,
-			Content:   content,
-			FilePath:  filePath,
-			Mode:      mode,
-			Header:    header,
-			Tags:      tags,
-			NewLine:   newLine,
-			Timestamp: timestamp,
-		})
-
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to update note: %v", err),
-				"BEAR_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Format and print success response
-		formatter.PrintSuccess(note)
-		return nil
-	},
-}
-
-// listCmd lists notes with optional filtering
-var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List notes from Bear with optional filtering",
-	Long: `List notes from Bear. Can filter by tag, search term, or status.
-
-Filters:
-  --tag TAG         - Show notes with a specific tag
-  --search TERM     - Search notes by content (requires API token)
-  --filter TYPE     - Filter by type: all, untagged, todo, today, locked
-
-Examples:
-  bear list --tag "work"
-  bear list --search "roadmap" --token "API_TOKEN"
-  bear list --filter untagged
-  bear list --filter todo`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
-		tag, _ := cmd.Flags().GetString("tag")
-		search, _ := cmd.Flags().GetString("search")
-		// filter, _ := cmd.Flags().GetString("filter")
-		token, _ := cmd.Flags().GetString("token")
-
-		// If search is requested, require a token
-		if search != "" && token == "" {
-			// Try to get token from config
-			var err error
-			token, err = util.GetToken()
-			if token == "" || err != nil {
-				formatter.PrintError(
-					"API token required for search operations",
-					"INVALID_ARGUMENTS",
-					"Provide with --token or set with 'bear config set-token'",
-				)
-				return nil
-			}
-		}
-
-		// Create Bear client
-		client, err := bear.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"Failed to initialize Bear client",
-				"CLIENT_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// List notes based on filter type
-		var result interface{}
-
-		if search != "" {
-			// Search operation
-			resp, err := client.SearchNotes(bear.ListNotesOptions{
-				Search: search,
-				Token:  token,
-			})
+		if filePath != "" {
+			expanded, err := util.ExpandHomePath(filePath)
 			if err != nil {
-				formatter.PrintError(
-					fmt.Sprintf("Failed to search notes: %v", err),
-					"BEAR_ERROR",
-					err.Error(),
-				)
+				formatter.PrintError("Invalid file path", "INVALID_ARGUMENTS", err.Error())
 				return nil
 			}
-			result = resp
-		} else if tag != "" {
-			// Tag filter operation
-			// Ensure we have a token for tag operations
-			if token == "" {
-				var err error
-				token, err = util.GetToken()
-				if token == "" || err != nil {
-					formatter.PrintError(
-						"API token required for tag list operations",
-						"INVALID_ARGUMENTS",
-						"Provide with --token or set with 'bear config set-token'",
-					)
-					return nil
-				}
-			}
-
-			resp, err := client.ListNotesByTag(bear.ListNotesOptions{
-				Tag:   tag,
-				Token: token,
-			})
+			payload, err := os.ReadFile(expanded)
 			if err != nil {
-				formatter.PrintError(
-					fmt.Sprintf("Failed to list notes by tag: %v", err),
-					"BEAR_ERROR",
-					err.Error(),
-				)
+				formatter.PrintError("Failed to read JSON file", "FILE_ERROR", err.Error())
 				return nil
 			}
-			result = resp
-		} else {
-			// Default to all notes
-			formatter.PrintError(
-				"List all notes not yet implemented without filters",
-				"NOT_IMPLEMENTED",
-				"Use --tag or --search to filter notes",
-			)
+			data = string(payload)
+		}
+
+		if strings.TrimSpace(data) == "" {
+			formatter.PrintError("Provide --data or --file", "INVALID_ARGUMENTS", "")
 			return nil
 		}
 
-		// Format and print success response
-		formatter.PrintSuccess(result)
-		return nil
+		params := make(map[string]string)
+		params["data"] = data
+		addBoolParam(cmd, params, "reveal", "reveal")
+		addStringParam(cmd, params, "auth-token", "auth-token")
+
+		return runAction("json", params, things.ExecuteOptions{UseAuthIfAvailable: true})
 	},
 }
 
-// archiveCmd archives (trashes) a note
-var archiveCmd = &cobra.Command{
-	Use:   "archive",
-	Short: "Archive (move to trash) a note in Bear",
-	Long: `Archive a note by moving it to Bear's trash.
-
-Examples:
-  bear archive --id "7E4B681B-..."
-  bear archive --id "7E4B681B-..." --no-window`,
+// versionCmd displays the Things URL scheme version
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Show Things URL scheme version",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
-		id, _ := cmd.Flags().GetString("id")
-		noWindow, _ := cmd.Flags().GetBool("no-window")
-
-		// Validate that ID is provided
-		if id == "" {
-			formatter.PrintError(
-				"Note ID (--id) is required",
-				"INVALID_ARGUMENTS",
-				"",
-			)
-			return nil
-		}
-
-		// Create Bear client
-		client, err := bear.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"Failed to initialize Bear client",
-				"CLIENT_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Archive the note
-		err = client.ArchiveNote(bear.ArchiveNoteOptions{
-			ID:       id,
-			NoWindow: noWindow,
-		})
-
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to archive note: %v", err),
-				"BEAR_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Format and print success response
-		formatter.PrintSuccess(map[string]interface{}{
-			"note_id": id,
-			"status":  "archived",
-		})
-		return nil
-	},
-}
-
-// speakCmd converts a Bear note to speech
-var speakCmd = &cobra.Command{
-	Use:   "speak",
-	Short: "Convert a Bear note to speech using TTS",
-	Long: `Read a note from Bear and convert its content to speech using MURF AI TTS.
-
-The note content will be retrieved, cleaned of code blocks and markdown,
-and converted to natural-sounding audio. Audio files are saved to ~/.config/bear-cli/audio/
-
-Examples:
-  bear speak --id "7E4B681B-..."
-  bear speak --title "Meeting Notes"
-  bear speak --id "7E4B681B-..." --voice "en-UK-emma"
-  bear speak --id "7E4B681B-..." --play
-  bear speak --id "7E4B681B-..." --output ~/audio/meeting.mp3`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
-		id, _ := cmd.Flags().GetString("id")
-		title, _ := cmd.Flags().GetString("title")
-		voice, _ := cmd.Flags().GetString("voice")
-		output, _ := cmd.Flags().GetString("output")
-		play, _ := cmd.Flags().GetBool("play")
-		header, _ := cmd.Flags().GetString("header")
-
-		// Validate that ID or Title is provided
-		if id == "" && title == "" {
-			formatter.PrintError(
-				"Must provide either --id or --title",
-				"INVALID_ARGUMENTS",
-				"",
-			)
-			return nil
-		}
-
-		// Create Bear client
-		bearClient, err := bear.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"Failed to initialize Bear client",
-				"CLIENT_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Read the note
-		note, err := bearClient.ReadNote(bear.ReadNoteOptions{
-			ID:     id,
-			Title:  title,
-			Header: header,
-		})
-
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to read note: %v", err),
-				"BEAR_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Create TTS client
-		ttsClient, err := tts.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"MURF TTS not configured",
-				"MURF_NOT_CONFIGURED",
-				"Set API key with: bear config set-murf --api-key YOUR_KEY",
-			)
-			return nil
-		}
-
-		// Generate speech
-		options := tts.TTSOptions{
-			Text:       note.Content,
-			VoiceID:    voice,
-			OutputPath: output,
-			AutoPlay:   play,
-		}
-
-		result, err := ttsClient.GenerateSpeech(note.Content, options)
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to generate speech: %v", err),
-				"TTS_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Check if generation was successful
-		if !result.Success {
-			formatter.PrintError(
-				result.Error,
-				result.ErrorCode,
-				"",
-			)
-			return nil
-		}
-
-		// Format and print success response
-		formatter.PrintSuccess(map[string]interface{}{
-			"note_id":        note.ID,
-			"note_title":     note.Title,
-			"audio_path":     result.AudioPath,
-			"text_length":    result.TextLength,
-			"cleaned_length": result.CleanedLength,
-			"format":         result.Format,
-			"voice_id":       result.VoiceID,
-			"auto_played":    result.AutoPlayed,
-		})
-		return nil
-	},
-}
-
-// tagsCmd manages Bear tags
-var tagsCmd = &cobra.Command{
-	Use:   "tags",
-	Short: "Manage Bear tags",
-	Long: `Work with Bear tags: list, rename, or delete tags.
-
-Subcommands:
-  list    - List all tags (requires API token)
-  rename  - Rename a tag
-  delete  - Delete a tag`,
-}
-
-// tagsListCmd lists all tags
-var tagsListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all tags in Bear",
-	Long: `Retrieve all tags used in Bear (requires API token).
-
-Example:
-  bear tags list --token "API_TOKEN"`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
-		token, _ := cmd.Flags().GetString("token")
-
-		// If no token provided, try to load from config
-		if token == "" {
-			var err error
-			token, err = util.GetToken()
-			if token == "" || err != nil {
-				formatter.PrintError(
-					"API token required for tags operation",
-					"INVALID_ARGUMENTS",
-					"Provide with --token or set with 'bear config set-token'",
-				)
-				return nil
-			}
-		}
-
-		// Create Bear client
-		client, err := bear.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"Failed to initialize Bear client",
-				"CLIENT_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Get all tags
-		result, err := client.GetAllTags(bear.TagsListOptions{
-			Token: token,
-		})
-
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to list tags: %v", err),
-				"BEAR_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Format and print success response
-		formatter.PrintSuccess(result)
-		return nil
-	},
-}
-
-// tagsRenameCmd renames a tag
-var tagsRenameCmd = &cobra.Command{
-	Use:   "rename",
-	Short: "Rename a tag",
-	Long: `Rename a tag across all notes.
-
-Example:
-  bear tags rename --name "old-tag" --new-name "new-tag"`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
-		name, _ := cmd.Flags().GetString("name")
-		newName, _ := cmd.Flags().GetString("new-name")
-
-		// Validate parameters
-		if name == "" || newName == "" {
-			formatter.PrintError(
-				"Both --name and --new-name are required",
-				"INVALID_ARGUMENTS",
-				"",
-			)
-			return nil
-		}
-
-		// Create Bear client
-		client, err := bear.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"Failed to initialize Bear client",
-				"CLIENT_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Rename the tag
-		err = client.RenameTag(bear.RenameTagOptions{
-			Name:    name,
-			NewName: newName,
-		})
-
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to rename tag: %v", err),
-				"BEAR_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Format and print success response
-		formatter.PrintSuccess(map[string]interface{}{
-			"old_name": name,
-			"new_name": newName,
-		})
-		return nil
-	},
-}
-
-// tagsDeleteCmd deletes a tag
-var tagsDeleteCmd = &cobra.Command{
-	Use:   "delete",
-	Short: "Delete a tag",
-	Long: `Delete a tag from all notes (does not delete notes, only removes the tag).
-
-Example:
-  bear tags delete --name "old-tag"`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
-		name, _ := cmd.Flags().GetString("name")
-
-		// Validate parameters
-		if name == "" {
-			formatter.PrintError(
-				"Tag name (--name) is required",
-				"INVALID_ARGUMENTS",
-				"",
-			)
-			return nil
-		}
-
-		// Create Bear client
-		client, err := bear.NewClient()
-		if err != nil {
-			formatter.PrintError(
-				"Failed to initialize Bear client",
-				"CLIENT_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Delete the tag
-		err = client.DeleteTag(bear.DeleteTagOptions{
-			Name: name,
-		})
-
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to delete tag: %v", err),
-				"BEAR_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Format and print success response
-		formatter.PrintSuccess(map[string]interface{}{
-			"deleted_tag": name,
-		})
-		return nil
+		return runAction("version", map[string]string{}, things.ExecuteOptions{})
 	},
 }
 
 // configCmd manages CLI configuration
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Manage bear CLI configuration",
-	Long: `Manage configuration including API token storage.
-
-Subcommands:
-  set-token - Store API token for persistent use
-  get-token - Display stored API token (masked)
-  show      - Show current configuration`,
+	Short: "Manage Things CLI configuration",
 }
 
-// configSetTokenCmd stores an API token
 var configSetTokenCmd = &cobra.Command{
 	Use:   "set-token",
-	Short: "Store API token",
-	Long: `Store your Bear API token for use with operations that require it.
-
-Example:
-  bear config set-token --token "123456-789ABC-DEF012"`,
+	Short: "Store Things auth token",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get command-line flags
-		token, _ := cmd.Flags().GetString("token")
-
-		// Validate token is provided
+		token, _ := cmd.Flags().GetString("auth-token")
 		if token == "" {
-			formatter.PrintError(
-				"Token (--token) is required",
-				"INVALID_ARGUMENTS",
-				"",
-			)
+			formatter.PrintError("Auth token (--auth-token) is required", "INVALID_ARGUMENTS", "")
 			return nil
 		}
 
-		// Save token to config
-		err := util.SetToken(token)
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to save token: %v", err),
-				"CONFIG_ERROR",
-				err.Error(),
-			)
+		if err := util.SetAuthToken(token); err != nil {
+			formatter.PrintError("Failed to save auth token", "CONFIG_ERROR", err.Error())
 			return nil
 		}
 
-		// Format and print success response
 		formatter.PrintSuccess(map[string]interface{}{
-			"status": "token saved",
+			"status": "auth token saved",
 		})
 		return nil
 	},
 }
 
-// configGetTokenCmd retrieves the stored token
 var configGetTokenCmd = &cobra.Command{
 	Use:   "get-token",
-	Short: "Display stored API token",
-	Long: `Retrieve the stored API token (displayed in masked form for security).
-
-Example:
-  bear config get-token`,
+	Short: "Display stored auth token (masked)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Load token from config
-		token, err := util.GetToken()
+		token, err := util.GetAuthToken()
 		if err != nil || token == "" {
-			formatter.PrintError(
-				"No token configured",
-				"CONFIG_ERROR",
-				"Set one with 'bear config set-token --token YOUR_TOKEN'",
-			)
+			formatter.PrintError("No auth token configured", "CONFIG_ERROR", "Set one with 'things config set-token --auth-token YOUR_TOKEN'")
 			return nil
 		}
 
-		// Mask the token for display
-		maskedToken := util.MaskToken(token)
-
-		// Format and print success response
 		formatter.PrintSuccess(map[string]interface{}{
-			"token": maskedToken,
+			"auth_token": util.MaskToken(token),
 		})
 		return nil
 	},
 }
 
-// configShowCmd displays current configuration
 var configShowCmd = &cobra.Command{
 	Use:   "show",
 	Short: "Show current configuration",
-	Long: `Display the current configuration including token status and settings.
-
-Example:
-  bear config show`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Load current configuration
 		config, err := util.LoadConfig()
 		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to load config: %v", err),
-				"CONFIG_ERROR",
-				err.Error(),
-			)
+			formatter.PrintError("Failed to load config", "CONFIG_ERROR", err.Error())
 			return nil
 		}
 
-		// Get config file path
 		configPath, _ := util.ConfigPath()
+		tokenDisplay := "not set"
+		if config.AuthToken != "" {
+			tokenDisplay = util.MaskToken(config.AuthToken)
+		}
 
-		// Prepare response
 		response := map[string]interface{}{
-			"token_set":     config.Token != "",
-			"token":         util.MaskToken(config.Token),
-			"callback_port": config.CallbackPort,
-			"timeout_sec":   config.CallbackTimeoutSeconds,
-			"show_window":   config.ShowWindow,
-			"output_format": config.OutputFormat,
-			"config_path":   configPath,
-			"last_updated":  config.LastUpdated,
-		}
-
-		// Format and print success response
-		formatter.PrintSuccess(response)
-		return nil
-	},
-}
-
-// configSetMurfCmd configures MURF TTS settings
-var configSetMurfCmd = &cobra.Command{
-	Use:   "set-murf",
-	Short: "Configure MURF TTS settings",
-	Long: `Set MURF API key and TTS preferences.
-
-Configuration is saved to ~/.config/bear-cli/config.json
-
-Examples:
-  bear config set-murf --api-key "your-api-key"
-  bear config set-murf --api-key "your-api-key" --voice "en-US-sara" --auto-play`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get flags
-		apiKey, _ := cmd.Flags().GetString("api-key")
-		voice, _ := cmd.Flags().GetString("voice")
-		format, _ := cmd.Flags().GetString("format")
-		sampleRate, _ := cmd.Flags().GetInt("sample-rate")
-		outputDir, _ := cmd.Flags().GetString("output-dir")
-		autoPlay, _ := cmd.Flags().GetBool("auto-play")
-
-		// Validate at least one setting is provided
-		if apiKey == "" && voice == "" && format == "" && sampleRate == 0 && outputDir == "" && !autoPlay {
-			formatter.PrintError(
-				"At least one setting must be provided",
-				"INVALID_ARGUMENTS",
-				"Use --api-key, --voice, --format, --sample-rate, --output-dir, or --auto-play",
-			)
-			return nil
-		}
-
-		// Save config
-		err := util.SetMurfConfig(apiKey, voice, format, sampleRate, outputDir, autoPlay)
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to save MURF config: %v", err),
-				"CONFIG_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Format and print success response
-		response := map[string]interface{}{
-			"status": "MURF configuration updated",
-		}
-		if apiKey != "" {
-			response["api_key"] = util.MaskAPIKey(apiKey)
-		}
-		if voice != "" {
-			response["voice_id"] = voice
-		}
-		if format != "" {
-			response["format"] = format
-		}
-		if sampleRate > 0 {
-			response["sample_rate"] = sampleRate
-		}
-		if outputDir != "" {
-			response["output_dir"] = outputDir
-		}
-		response["auto_play"] = autoPlay
-
-		formatter.PrintSuccess(response)
-		return nil
-	},
-}
-
-// configShowMurfCmd displays MURF TTS configuration
-var configShowMurfCmd = &cobra.Command{
-	Use:   "show-murf",
-	Short: "Display MURF TTS configuration",
-	Long: `Show current MURF TTS configuration from ~/.config/bear-cli/config.json
-
-Example:
-  bear config show-murf`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Load current configuration
-		config, err := util.LoadConfig()
-		if err != nil {
-			formatter.PrintError(
-				fmt.Sprintf("Failed to load config: %v", err),
-				"CONFIG_ERROR",
-				err.Error(),
-			)
-			return nil
-		}
-
-		// Check if any MURF config is set
-		isConfigured := config.MurfAPIKey != ""
-
-		// Prepare response with masked API key
-		response := map[string]interface{}{
-			"configured":    isConfigured,
-			"voice_id":      config.MurfVoiceID,
-			"format":        config.MurfFormat,
-			"sample_rate":   config.MurfSampleRate,
-			"output_dir":    config.MurfOutputDir,
-			"auto_play":     config.MurfAutoPlay,
-			"enabled":       config.MurfEnabled,
-		}
-
-		if isConfigured {
-			response["api_key"] = util.MaskAPIKey(config.MurfAPIKey)
-		} else {
-			response["api_key"] = "not configured"
+			"auth_token_set":        config.AuthToken != "",
+			"auth_token":            tokenDisplay,
+			"callback_port":         config.CallbackPort,
+			"timeout_sec":           config.CallbackTimeoutSeconds,
+			"output_format":         config.OutputFormat,
+			"config_path":           configPath,
+			"last_updated":          config.LastUpdated,
 		}
 
 		formatter.PrintSuccess(response)
@@ -932,94 +388,112 @@ Example:
 	},
 }
 
-// init sets up all commands and their flags
 func init() {
-	// Create command flags
-	createCmd.Flags().StringP("title", "t", "", "Note title")
-	createCmd.Flags().StringP("content", "c", "", "Note content")
-	createCmd.Flags().StringP("tags", "g", "", "Comma-separated tags (e.g., 'work,urgent')")
-	createCmd.Flags().StringP("file", "f", "", "File path to attach to note")
-	createCmd.Flags().BoolP("pin", "p", false, "Pin note to top of list")
-	createCmd.Flags().Bool("timestamp", false, "Prepend current date/time to content")
+	addCmd.Flags().String("title", "", "To-do title")
+	addCmd.Flags().StringArray("titles", []string{}, "Multiple to-do titles (repeat flag)")
+	addCmd.Flags().String("notes", "", "Notes for the to-do")
+	addCmd.Flags().String("when", "", "When to schedule (today, tonight, anytime, someday, or date)")
+	addCmd.Flags().String("deadline", "", "Deadline date (YYYY-MM-DD)")
+	addCmd.Flags().String("tags", "", "Comma-separated tags")
+	addCmd.Flags().String("list", "", "List name or project title")
+	addCmd.Flags().String("list-id", "", "List or project ID")
+	addCmd.Flags().String("heading", "", "Heading title")
+	addCmd.Flags().String("heading-id", "", "Heading ID")
+	addCmd.Flags().StringArray("checklist-items", []string{}, "Checklist items (repeat flag)")
+	addCmd.Flags().Bool("completed", false, "Mark as completed")
+	addCmd.Flags().Bool("canceled", false, "Mark as canceled")
+	addCmd.Flags().Bool("show-quick-entry", false, "Show quick entry after adding")
+	addCmd.Flags().Bool("reveal", false, "Reveal the created to-do in Things")
+	addCmd.Flags().String("creation-date", "", "Creation date (ISO 8601)")
+	addCmd.Flags().String("completion-date", "", "Completion date (ISO 8601)")
+	addCmd.Flags().String("use-clipboard", "", "Use clipboard content (replace-title|replace-notes|replace-checklist-items)")
 
-	// Read command flags
-	readCmd.Flags().StringP("id", "i", "", "Note ID")
-	readCmd.Flags().StringP("title", "t", "", "Note title (for lookup)")
-	readCmd.Flags().StringP("header", "e", "", "Extract specific header section")
-	readCmd.Flags().Bool("exclude-trashed", false, "Skip trashed notes")
+	addProjectCmd.Flags().String("title", "", "Project title")
+	addProjectCmd.Flags().String("notes", "", "Project notes")
+	addProjectCmd.Flags().String("when", "", "When to schedule (today, tonight, anytime, someday, or date)")
+	addProjectCmd.Flags().String("deadline", "", "Deadline date (YYYY-MM-DD)")
+	addProjectCmd.Flags().String("tags", "", "Comma-separated tags")
+	addProjectCmd.Flags().String("area", "", "Area name")
+	addProjectCmd.Flags().String("area-id", "", "Area ID")
+	addProjectCmd.Flags().StringArray("to-dos", []string{}, "Project to-dos (repeat flag)")
+	addProjectCmd.Flags().Bool("completed", false, "Mark as completed")
+	addProjectCmd.Flags().Bool("canceled", false, "Mark as canceled")
+	addProjectCmd.Flags().Bool("reveal", false, "Reveal the created project in Things")
+	addProjectCmd.Flags().String("creation-date", "", "Creation date (ISO 8601)")
+	addProjectCmd.Flags().String("completion-date", "", "Completion date (ISO 8601)")
 
-	// Update command flags
-	updateCmd.Flags().StringP("id", "i", "", "Note ID (required)")
-	updateCmd.Flags().StringP("content", "c", "", "Content to add/update")
-	updateCmd.Flags().StringP("file", "f", "", "File path to attach")
-	updateCmd.Flags().StringP("mode", "m", "append", "Update mode: append, prepend, replace, replace_all")
-	updateCmd.Flags().StringP("header", "e", "", "Target specific header section")
-	updateCmd.Flags().StringP("tags", "g", "", "Comma-separated tags to add/update")
-	updateCmd.Flags().Bool("new-line", false, "Add content on new line (append mode only)")
-	updateCmd.Flags().Bool("timestamp", false, "Prepend date/time to added content")
+	updateCmd.Flags().String("id", "", "To-do ID (required)")
+	updateCmd.Flags().String("title", "", "Updated title")
+	updateCmd.Flags().String("notes", "", "Replace notes")
+	updateCmd.Flags().String("prepend-notes", "", "Prepend notes")
+	updateCmd.Flags().String("append-notes", "", "Append notes")
+	updateCmd.Flags().String("when", "", "Update schedule")
+	updateCmd.Flags().String("deadline", "", "Update deadline")
+	updateCmd.Flags().String("tags", "", "Replace tags")
+	updateCmd.Flags().String("add-tags", "", "Add tags")
+	updateCmd.Flags().StringArray("checklist-items", []string{}, "Replace checklist items (repeat flag)")
+	updateCmd.Flags().StringArray("prepend-checklist-items", []string{}, "Prepend checklist items (repeat flag)")
+	updateCmd.Flags().StringArray("append-checklist-items", []string{}, "Append checklist items (repeat flag)")
+	updateCmd.Flags().String("list", "", "Move to list by name")
+	updateCmd.Flags().String("list-id", "", "Move to list by ID")
+	updateCmd.Flags().String("heading", "", "Move to heading by name")
+	updateCmd.Flags().String("heading-id", "", "Move to heading by ID")
+	updateCmd.Flags().Bool("completed", false, "Mark as completed")
+	updateCmd.Flags().Bool("canceled", false, "Mark as canceled")
+	updateCmd.Flags().Bool("reveal", false, "Reveal the updated to-do")
+	updateCmd.Flags().Bool("duplicate", false, "Duplicate the to-do")
+	updateCmd.Flags().String("creation-date", "", "Set creation date (ISO 8601)")
+	updateCmd.Flags().String("completion-date", "", "Set completion date (ISO 8601)")
+	updateCmd.Flags().String("use-clipboard", "", "Use clipboard content (replace-title|replace-notes|replace-checklist-items)")
+	updateCmd.Flags().String("auth-token", "", "Things auth token (overrides config/ENV)")
 
-	// List command flags
-	listCmd.Flags().StringP("tag", "t", "", "Filter by tag")
-	listCmd.Flags().StringP("search", "s", "", "Search notes by term (requires token)")
-	listCmd.Flags().StringP("filter", "f", "", "Filter type: all, untagged, todo, today, locked")
-	listCmd.Flags().StringP("token", "k", "", "API token (or use config)")
+	updateProjectCmd.Flags().String("id", "", "Project ID (required)")
+	updateProjectCmd.Flags().String("title", "", "Updated title")
+	updateProjectCmd.Flags().String("notes", "", "Replace notes")
+	updateProjectCmd.Flags().String("prepend-notes", "", "Prepend notes")
+	updateProjectCmd.Flags().String("append-notes", "", "Append notes")
+	updateProjectCmd.Flags().String("when", "", "Update schedule")
+	updateProjectCmd.Flags().String("deadline", "", "Update deadline")
+	updateProjectCmd.Flags().String("tags", "", "Replace tags")
+	updateProjectCmd.Flags().String("add-tags", "", "Add tags")
+	updateProjectCmd.Flags().String("area", "", "Move to area by name")
+	updateProjectCmd.Flags().String("area-id", "", "Move to area by ID")
+	updateProjectCmd.Flags().Bool("completed", false, "Mark as completed")
+	updateProjectCmd.Flags().Bool("canceled", false, "Mark as canceled")
+	updateProjectCmd.Flags().Bool("reveal", false, "Reveal the updated project")
+	updateProjectCmd.Flags().Bool("duplicate", false, "Duplicate the project")
+	updateProjectCmd.Flags().String("creation-date", "", "Set creation date (ISO 8601)")
+	updateProjectCmd.Flags().String("completion-date", "", "Set completion date (ISO 8601)")
+	updateProjectCmd.Flags().String("auth-token", "", "Things auth token (overrides config/ENV)")
 
-	// Archive command flags
-	archiveCmd.Flags().StringP("id", "i", "", "Note ID (required)")
-	archiveCmd.Flags().Bool("no-window", false, "Don't show Bear window")
+	showCmd.Flags().String("id", "", "Item ID to show")
+	showCmd.Flags().String("query", "", "List query (Inbox, Today, Upcoming, etc)")
 
-	// Speak command flags
-	speakCmd.Flags().StringP("id", "i", "", "Note ID")
-	speakCmd.Flags().StringP("title", "t", "", "Note title (for lookup)")
-	speakCmd.Flags().StringP("voice", "v", "", "Override voice ID")
-	speakCmd.Flags().StringP("output", "o", "", "Custom output path for audio file")
-	speakCmd.Flags().BoolP("play", "p", false, "Auto-play audio after generation")
-	speakCmd.Flags().StringP("header", "e", "", "Extract specific header section")
+	searchCmd.Flags().String("query", "", "Search query")
 
-	// Tags list command flags
-	tagsListCmd.Flags().StringP("token", "k", "", "API token (or use config)")
+	jsonCmd.Flags().String("data", "", "JSON payload string")
+	jsonCmd.Flags().String("file", "", "Path to JSON payload file")
+	jsonCmd.Flags().Bool("reveal", false, "Reveal created items")
+	jsonCmd.Flags().String("auth-token", "", "Things auth token (overrides config/ENV)")
 
-	// Tags rename command flags
-	tagsRenameCmd.Flags().StringP("name", "n", "", "Current tag name (required)")
-	tagsRenameCmd.Flags().StringP("new-name", "w", "", "New tag name (required)")
+	configSetTokenCmd.Flags().String("auth-token", "", "Things auth token")
 
-	// Tags delete command flags
-	tagsDeleteCmd.Flags().StringP("name", "n", "", "Tag name to delete (required)")
-
-	// Config set-token command flags
-	configSetTokenCmd.Flags().StringP("token", "k", "", "API token (required)")
-
-	// Config set-murf command flags
-	configSetMurfCmd.Flags().StringP("api-key", "k", "", "MURF API key")
-	configSetMurfCmd.Flags().StringP("voice", "v", "", "Voice ID (e.g., en-UK-mason)")
-	configSetMurfCmd.Flags().StringP("format", "f", "", "Audio format (MP3, WAV, FLAC, OGG)")
-	configSetMurfCmd.Flags().IntP("sample-rate", "r", 0, "Sample rate in Hz (8000, 16000, 22050, 24000, 44100, 48000)")
-	configSetMurfCmd.Flags().StringP("output-dir", "d", "", "Output directory for audio files")
-	configSetMurfCmd.Flags().BoolP("auto-play", "a", false, "Auto-play audio after generation")
-
-	// Add subcommands to tags command
-	tagsCmd.AddCommand(tagsListCmd)
-	tagsCmd.AddCommand(tagsRenameCmd)
-	tagsCmd.AddCommand(tagsDeleteCmd)
-
-	// Add subcommands to config command
 	configCmd.AddCommand(configSetTokenCmd)
 	configCmd.AddCommand(configGetTokenCmd)
 	configCmd.AddCommand(configShowCmd)
-	configCmd.AddCommand(configSetMurfCmd)
-	configCmd.AddCommand(configShowMurfCmd)
 }
 
 // GetCommands returns all available commands for the root command
 func GetCommands() []*cobra.Command {
 	return []*cobra.Command{
-		createCmd,
-		readCmd,
+		addCmd,
+		addProjectCmd,
 		updateCmd,
-		listCmd,
-		archiveCmd,
-		speakCmd,
-		tagsCmd,
+		updateProjectCmd,
+		showCmd,
+		searchCmd,
+		jsonCmd,
+		versionCmd,
 		configCmd,
 	}
 }

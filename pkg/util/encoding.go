@@ -1,14 +1,13 @@
 package util
 
 import (
-	"encoding/base64"
 	"net/url"
 	"os"
 	"strings"
 	"time"
 )
 
-// EncodeParam URL-encodes a string parameter for use in Bear URLs
+// EncodeParam URL-encodes a string parameter for use in Things URLs
 // This ensures special characters are properly escaped
 func EncodeParam(value string) string {
 	return url.QueryEscape(value)
@@ -19,28 +18,12 @@ func EncodeParam(value string) string {
 func EncodeParams(params map[string]string) string {
 	v := url.Values{}
 	for key, value := range params {
-		if value != "" {
-			v.Add(key, value)
-		}
+		v.Add(key, value)
 	}
 	// Encode and replace + with %20 for proper space encoding in x-callback-urls
-	// Bear's callback mechanism doesn't properly decode + as space, so we use %20 instead
+	// Things' callback mechanism doesn't properly decode + as space, so we use %20 instead
 	encoded := v.Encode()
 	return strings.ReplaceAll(encoded, "+", "%20")
-}
-
-// ReadFileAsBase64 reads a file and returns its base64 encoded content
-// Used for attaching files to notes
-func ReadFileAsBase64(filePath string) (string, error) {
-	// Read the file from disk
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", err
-	}
-
-	// Encode to base64 for transmission via URL
-	encoded := base64.StdEncoding.EncodeToString(data)
-	return encoded, nil
 }
 
 // GetTimestamp returns current date/time formatted for prepending to notes
