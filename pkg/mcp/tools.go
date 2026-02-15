@@ -19,7 +19,13 @@ func executeTool(client *things.Client, action string, params map[string]string,
 	}
 
 	result := things.NormalizeResponse(action, callback)
-	data, _ := json.MarshalIndent(result, "", "  ")
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return &gomcp.CallToolResult{
+			Content: []gomcp.Content{&gomcp.TextContent{Text: fmt.Sprintf("Error marshaling result: %v", err)}},
+			IsError: true,
+		}, nil
+	}
 	return &gomcp.CallToolResult{
 		Content: []gomcp.Content{&gomcp.TextContent{Text: string(data)}},
 	}, nil
@@ -32,98 +38,98 @@ func setIfNonEmpty(params map[string]string, key, value string) {
 }
 
 type AddInput struct {
-	Title          string `json:"title,omitempty" jsonschema:"description=To-do title"`
-	Titles         string `json:"titles,omitempty" jsonschema:"description=Newline-separated list of to-do titles (for batch creation)"`
-	Notes          string `json:"notes,omitempty" jsonschema:"description=Notes for the to-do"`
-	When           string `json:"when,omitempty" jsonschema:"description=When to schedule: today, tonight, anytime, someday, or YYYY-MM-DD"`
-	Deadline       string `json:"deadline,omitempty" jsonschema:"description=Deadline date (YYYY-MM-DD)"`
-	Tags           string `json:"tags,omitempty" jsonschema:"description=Comma-separated tags"`
-	List           string `json:"list,omitempty" jsonschema:"description=List name or project title"`
-	ListID         string `json:"list_id,omitempty" jsonschema:"description=List or project ID"`
-	Heading        string `json:"heading,omitempty" jsonschema:"description=Heading title"`
-	HeadingID      string `json:"heading_id,omitempty" jsonschema:"description=Heading ID"`
-	ChecklistItems string `json:"checklist_items,omitempty" jsonschema:"description=Newline-separated checklist items"`
-	Completed      bool   `json:"completed,omitempty" jsonschema:"description=Mark as completed"`
-	Canceled       bool   `json:"canceled,omitempty" jsonschema:"description=Mark as canceled"`
-	ShowQuickEntry bool   `json:"show_quick_entry,omitempty" jsonschema:"description=Show quick entry after adding"`
-	Reveal         bool   `json:"reveal,omitempty" jsonschema:"description=Reveal the created to-do in Things"`
-	CreationDate   string `json:"creation_date,omitempty" jsonschema:"description=Creation date (ISO 8601)"`
-	CompletionDate string `json:"completion_date,omitempty" jsonschema:"description=Completion date (ISO 8601)"`
+	Title          string `json:"title,omitempty" jsonschema:"To-do title"`
+	Titles         string `json:"titles,omitempty" jsonschema:"Newline-separated list of to-do titles (for batch creation)"`
+	Notes          string `json:"notes,omitempty" jsonschema:"Notes for the to-do"`
+	When           string `json:"when,omitempty" jsonschema:"When to schedule: today, tonight, anytime, someday, or YYYY-MM-DD"`
+	Deadline       string `json:"deadline,omitempty" jsonschema:"Deadline date (YYYY-MM-DD)"`
+	Tags           string `json:"tags,omitempty" jsonschema:"Comma-separated tags"`
+	List           string `json:"list,omitempty" jsonschema:"List name or project title"`
+	ListID         string `json:"list_id,omitempty" jsonschema:"List or project ID"`
+	Heading        string `json:"heading,omitempty" jsonschema:"Heading title"`
+	HeadingID      string `json:"heading_id,omitempty" jsonschema:"Heading ID"`
+	ChecklistItems string `json:"checklist_items,omitempty" jsonschema:"Newline-separated checklist items"`
+	Completed      bool   `json:"completed,omitempty" jsonschema:"Mark as completed"`
+	Canceled       bool   `json:"canceled,omitempty" jsonschema:"Mark as canceled"`
+	ShowQuickEntry bool   `json:"show_quick_entry,omitempty" jsonschema:"Show quick entry after adding"`
+	Reveal         bool   `json:"reveal,omitempty" jsonschema:"Reveal the created to-do in Things"`
+	CreationDate   string `json:"creation_date,omitempty" jsonschema:"Creation date (ISO 8601)"`
+	CompletionDate string `json:"completion_date,omitempty" jsonschema:"Completion date (ISO 8601)"`
 }
 
 type AddProjectInput struct {
-	Title          string `json:"title,omitempty" jsonschema:"description=Project title"`
-	Notes          string `json:"notes,omitempty" jsonschema:"description=Project notes"`
-	When           string `json:"when,omitempty" jsonschema:"description=When to schedule: today, tonight, anytime, someday, or YYYY-MM-DD"`
-	Deadline       string `json:"deadline,omitempty" jsonschema:"description=Deadline date (YYYY-MM-DD)"`
-	Tags           string `json:"tags,omitempty" jsonschema:"description=Comma-separated tags"`
-	Area           string `json:"area,omitempty" jsonschema:"description=Area name"`
-	AreaID         string `json:"area_id,omitempty" jsonschema:"description=Area ID"`
-	ToDos          string `json:"to_dos,omitempty" jsonschema:"description=Newline-separated to-do titles for the project"`
-	Completed      bool   `json:"completed,omitempty" jsonschema:"description=Mark as completed"`
-	Canceled       bool   `json:"canceled,omitempty" jsonschema:"description=Mark as canceled"`
-	Reveal         bool   `json:"reveal,omitempty" jsonschema:"description=Reveal the created project in Things"`
-	CreationDate   string `json:"creation_date,omitempty" jsonschema:"description=Creation date (ISO 8601)"`
-	CompletionDate string `json:"completion_date,omitempty" jsonschema:"description=Completion date (ISO 8601)"`
+	Title          string `json:"title,omitempty" jsonschema:"Project title"`
+	Notes          string `json:"notes,omitempty" jsonschema:"Project notes"`
+	When           string `json:"when,omitempty" jsonschema:"When to schedule: today, tonight, anytime, someday, or YYYY-MM-DD"`
+	Deadline       string `json:"deadline,omitempty" jsonschema:"Deadline date (YYYY-MM-DD)"`
+	Tags           string `json:"tags,omitempty" jsonschema:"Comma-separated tags"`
+	Area           string `json:"area,omitempty" jsonschema:"Area name"`
+	AreaID         string `json:"area_id,omitempty" jsonschema:"Area ID"`
+	ToDos          string `json:"to_dos,omitempty" jsonschema:"Newline-separated to-do titles for the project"`
+	Completed      bool   `json:"completed,omitempty" jsonschema:"Mark as completed"`
+	Canceled       bool   `json:"canceled,omitempty" jsonschema:"Mark as canceled"`
+	Reveal         bool   `json:"reveal,omitempty" jsonschema:"Reveal the created project in Things"`
+	CreationDate   string `json:"creation_date,omitempty" jsonschema:"Creation date (ISO 8601)"`
+	CompletionDate string `json:"completion_date,omitempty" jsonschema:"Completion date (ISO 8601)"`
 }
 
 type UpdateInput struct {
-	ID                    string `json:"id" jsonschema:"description=To-do ID (required),required"`
-	Title                 string `json:"title,omitempty" jsonschema:"description=Updated title"`
-	Notes                 string `json:"notes,omitempty" jsonschema:"description=Replace notes"`
-	PrependNotes          string `json:"prepend_notes,omitempty" jsonschema:"description=Prepend to notes"`
-	AppendNotes           string `json:"append_notes,omitempty" jsonschema:"description=Append to notes"`
-	When                  string `json:"when,omitempty" jsonschema:"description=Update schedule"`
-	Deadline              string `json:"deadline,omitempty" jsonschema:"description=Update deadline"`
-	Tags                  string `json:"tags,omitempty" jsonschema:"description=Replace tags (comma-separated)"`
-	AddTags               string `json:"add_tags,omitempty" jsonschema:"description=Add tags (comma-separated)"`
-	ChecklistItems        string `json:"checklist_items,omitempty" jsonschema:"description=Replace checklist items (newline-separated)"`
-	PrependChecklistItems string `json:"prepend_checklist_items,omitempty" jsonschema:"description=Prepend checklist items (newline-separated)"`
-	AppendChecklistItems  string `json:"append_checklist_items,omitempty" jsonschema:"description=Append checklist items (newline-separated)"`
-	List                  string `json:"list,omitempty" jsonschema:"description=Move to list by name"`
-	ListID                string `json:"list_id,omitempty" jsonschema:"description=Move to list by ID"`
-	Heading               string `json:"heading,omitempty" jsonschema:"description=Move to heading by name"`
-	HeadingID             string `json:"heading_id,omitempty" jsonschema:"description=Move to heading by ID"`
-	Completed             bool   `json:"completed,omitempty" jsonschema:"description=Mark as completed"`
-	Canceled              bool   `json:"canceled,omitempty" jsonschema:"description=Mark as canceled"`
-	Reveal                bool   `json:"reveal,omitempty" jsonschema:"description=Reveal the updated to-do"`
-	Duplicate             bool   `json:"duplicate,omitempty" jsonschema:"description=Duplicate the to-do"`
-	CreationDate          string `json:"creation_date,omitempty" jsonschema:"description=Set creation date (ISO 8601)"`
-	CompletionDate        string `json:"completion_date,omitempty" jsonschema:"description=Set completion date (ISO 8601)"`
+	ID                    string `json:"id" jsonschema:"To-do ID (required)"`
+	Title                 string `json:"title,omitempty" jsonschema:"Updated title"`
+	Notes                 string `json:"notes,omitempty" jsonschema:"Replace notes"`
+	PrependNotes          string `json:"prepend_notes,omitempty" jsonschema:"Prepend to notes"`
+	AppendNotes           string `json:"append_notes,omitempty" jsonschema:"Append to notes"`
+	When                  string `json:"when,omitempty" jsonschema:"Update schedule"`
+	Deadline              string `json:"deadline,omitempty" jsonschema:"Update deadline"`
+	Tags                  string `json:"tags,omitempty" jsonschema:"Replace tags (comma-separated)"`
+	AddTags               string `json:"add_tags,omitempty" jsonschema:"Add tags (comma-separated)"`
+	ChecklistItems        string `json:"checklist_items,omitempty" jsonschema:"Replace checklist items (newline-separated)"`
+	PrependChecklistItems string `json:"prepend_checklist_items,omitempty" jsonschema:"Prepend checklist items (newline-separated)"`
+	AppendChecklistItems  string `json:"append_checklist_items,omitempty" jsonschema:"Append checklist items (newline-separated)"`
+	List                  string `json:"list,omitempty" jsonschema:"Move to list by name"`
+	ListID                string `json:"list_id,omitempty" jsonschema:"Move to list by ID"`
+	Heading               string `json:"heading,omitempty" jsonschema:"Move to heading by name"`
+	HeadingID             string `json:"heading_id,omitempty" jsonschema:"Move to heading by ID"`
+	Completed             bool   `json:"completed,omitempty" jsonschema:"Mark as completed"`
+	Canceled              bool   `json:"canceled,omitempty" jsonschema:"Mark as canceled"`
+	Reveal                bool   `json:"reveal,omitempty" jsonschema:"Reveal the updated to-do"`
+	Duplicate             bool   `json:"duplicate,omitempty" jsonschema:"Duplicate the to-do"`
+	CreationDate          string `json:"creation_date,omitempty" jsonschema:"Set creation date (ISO 8601)"`
+	CompletionDate        string `json:"completion_date,omitempty" jsonschema:"Set completion date (ISO 8601)"`
 }
 
 type UpdateProjectInput struct {
-	ID             string `json:"id" jsonschema:"description=Project ID (required),required"`
-	Title          string `json:"title,omitempty" jsonschema:"description=Updated title"`
-	Notes          string `json:"notes,omitempty" jsonschema:"description=Replace notes"`
-	PrependNotes   string `json:"prepend_notes,omitempty" jsonschema:"description=Prepend to notes"`
-	AppendNotes    string `json:"append_notes,omitempty" jsonschema:"description=Append to notes"`
-	When           string `json:"when,omitempty" jsonschema:"description=Update schedule"`
-	Deadline       string `json:"deadline,omitempty" jsonschema:"description=Update deadline"`
-	Tags           string `json:"tags,omitempty" jsonschema:"description=Replace tags (comma-separated)"`
-	AddTags        string `json:"add_tags,omitempty" jsonschema:"description=Add tags (comma-separated)"`
-	Area           string `json:"area,omitempty" jsonschema:"description=Move to area by name"`
-	AreaID         string `json:"area_id,omitempty" jsonschema:"description=Move to area by ID"`
-	Completed      bool   `json:"completed,omitempty" jsonschema:"description=Mark as completed"`
-	Canceled       bool   `json:"canceled,omitempty" jsonschema:"description=Mark as canceled"`
-	Reveal         bool   `json:"reveal,omitempty" jsonschema:"description=Reveal the updated project"`
-	Duplicate      bool   `json:"duplicate,omitempty" jsonschema:"description=Duplicate the project"`
-	CreationDate   string `json:"creation_date,omitempty" jsonschema:"description=Set creation date (ISO 8601)"`
-	CompletionDate string `json:"completion_date,omitempty" jsonschema:"description=Set completion date (ISO 8601)"`
+	ID             string `json:"id" jsonschema:"Project ID (required)"`
+	Title          string `json:"title,omitempty" jsonschema:"Updated title"`
+	Notes          string `json:"notes,omitempty" jsonschema:"Replace notes"`
+	PrependNotes   string `json:"prepend_notes,omitempty" jsonschema:"Prepend to notes"`
+	AppendNotes    string `json:"append_notes,omitempty" jsonschema:"Append to notes"`
+	When           string `json:"when,omitempty" jsonschema:"Update schedule"`
+	Deadline       string `json:"deadline,omitempty" jsonschema:"Update deadline"`
+	Tags           string `json:"tags,omitempty" jsonschema:"Replace tags (comma-separated)"`
+	AddTags        string `json:"add_tags,omitempty" jsonschema:"Add tags (comma-separated)"`
+	Area           string `json:"area,omitempty" jsonschema:"Move to area by name"`
+	AreaID         string `json:"area_id,omitempty" jsonschema:"Move to area by ID"`
+	Completed      bool   `json:"completed,omitempty" jsonschema:"Mark as completed"`
+	Canceled       bool   `json:"canceled,omitempty" jsonschema:"Mark as canceled"`
+	Reveal         bool   `json:"reveal,omitempty" jsonschema:"Reveal the updated project"`
+	Duplicate      bool   `json:"duplicate,omitempty" jsonschema:"Duplicate the project"`
+	CreationDate   string `json:"creation_date,omitempty" jsonschema:"Set creation date (ISO 8601)"`
+	CompletionDate string `json:"completion_date,omitempty" jsonschema:"Set completion date (ISO 8601)"`
 }
 
 type ShowInput struct {
-	ID    string `json:"id,omitempty" jsonschema:"description=Item ID to show"`
-	Query string `json:"query,omitempty" jsonschema:"description=List query: Inbox, Today, Upcoming, Anytime, Someday, Logbook"`
+	ID    string `json:"id,omitempty" jsonschema:"Item ID to show"`
+	Query string `json:"query,omitempty" jsonschema:"List query: Inbox, Today, Upcoming, Anytime, Someday, Logbook"`
 }
 
 type SearchInput struct {
-	Query string `json:"query" jsonschema:"description=Search query,required"`
+	Query string `json:"query" jsonschema:"Search query"`
 }
 
 type JSONInput struct {
-	Data   string `json:"data" jsonschema:"description=JSON payload string for Things batch operations,required"`
-	Reveal bool   `json:"reveal,omitempty" jsonschema:"description=Reveal created items"`
+	Data   string `json:"data" jsonschema:"JSON payload string for Things batch operations"`
+	Reveal bool   `json:"reveal,omitempty" jsonschema:"Reveal created items"`
 }
 
 type VersionInput struct{}

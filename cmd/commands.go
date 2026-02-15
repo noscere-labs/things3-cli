@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yourusername/things3-cli/pkg/formatter"
+	thingsmcp "github.com/yourusername/things3-cli/pkg/mcp"
 	"github.com/yourusername/things3-cli/pkg/things"
 	"github.com/yourusername/things3-cli/pkg/util"
 )
@@ -388,7 +389,19 @@ var configShowCmd = &cobra.Command{
 	},
 }
 
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start the MCP server",
+	Long:  `Start a Model Context Protocol (MCP) server over Streamable HTTP, exposing Things 3 actions as tools for AI assistants.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		port, _ := cmd.Flags().GetInt("port")
+		return thingsmcp.Serve(port)
+	},
+}
+
 func init() {
+	serveCmd.Flags().Int("port", 8080, "Port to listen on")
+
 	addCmd.Flags().String("title", "", "To-do title")
 	addCmd.Flags().StringArray("titles", []string{}, "Multiple to-do titles (repeat flag)")
 	addCmd.Flags().String("notes", "", "Notes for the to-do")
@@ -495,5 +508,6 @@ func GetCommands() []*cobra.Command {
 		jsonCmd,
 		versionCmd,
 		configCmd,
+		serveCmd,
 	}
 }
